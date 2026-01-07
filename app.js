@@ -211,13 +211,31 @@ function parseAndPrefill(text) {
     }
     dateInput.value = `${y}-${m}-${d}`;
   }
+
+  // Spezielles Muster: "<stunden> Stunden ... <stundensatz> €"
+  const hrRatePattern = /(\d+[\.,]?\d*)\s*Stunden?[^\d]*(\d+[\.,]?\d*)\s*(?:€|eur|euro)/i;
+  const hrRateMatch = text.match(hrRatePattern);
+  // Flag um zu verfolgen, ob der Stundensatz bereits gesetzt wurde
+  let rateSet = false;
+  if (hrRateMatch) {
+    let hrsVal = hrRateMatch[1].replace(',', '.');
+    let rateVal = hrRateMatch[2].replace(',', '.');
+    if (!isNaN(parseFloat(hrsVal))) {
+      hoursInput.value = parseFloat(hrsVal);
+    }
+    const rNum = parseFloat(rateVal);
+    if (!isNaN(rNum) && rNum <= 120) {
+      rateInput.value = rNum;
+      rateSet = true;
+    }
+  }
   // Stunden suchen. Zuerst nach "Anzahl: <Zahl>" (z.B. "Anzahl: 12,00")
   const anzahlRegex = /Anzahl[:\s]*([\d\.,]+)/i;
   const anzahlMatch = text.match(anzahlRegex);
-  if (anzahlMatch) {
+  if (!hoursInput.value && anzahlMatch) {
     let hrs = anzahlMatch[1].replace(',', '.');
     hoursInput.value = hrs;
-  } else {
+  } else if (!hoursInput.value) {
     // Fallback: Zahl gefolgt von Einheiten (z.B. 5 h, 7,5 Std)
     const hoursRegex = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
     const hoursMatch = text.match(hoursRegex);
@@ -227,19 +245,29 @@ function parseAndPrefill(text) {
     }
   }
   // Stundensatz suchen
-  // 1. Explizite Angabe "Betrag: <Zahl>" oder "Stundensatz: <Zahl>"
-  const betragRegex = /(?:betrag|stundensatz)[:\s]*([\d\.,]+)/i;
-  const betragMatch = text.match(betragRegex);
-  if (betragMatch) {
-    let rate = betragMatch[1].replace(',', '.');
-    rateInput.value = rate;
-  } else {
-    // 2. Fallback: erste gefundene Zahl mit Währung
-    const rateRegex = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
-    const rateMatch = text.match(rateRegex);
-    if (rateMatch) {
-      let rate = rateMatch[1].replace(',', '.');
-      rateInput.value = rate;
+  // 1. Explizite Angabe "Betrag: <Zahl>" oder "Stundensatz: <Zahl>" – wähle den ersten Wert <= 120
+  const betragRegex = /(?:betrag|stundensatz)[:\s]*([\d\.,]+)/gi;
+  // rateSet wird weiter oben beim speziellen Muster gesetzt
+  let match;
+  while (!rateSet && (match = betragRegex.exec(text)) !== null) {
+    let val = parseFloat(match[1].replace(',', '.'));
+    if (!isNaN(val) && val <= 120) {
+      rateInput.value = val;
+      rateSet = true;
+      break;
+    }
+  }
+  // 2. Fallback: erste gefundene Zahl mit Währung (€, EUR) <= 120
+  if (!rateSet) {
+    const rateRegex = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/gi;
+    let rm;
+    while ((rm = rateRegex.exec(text)) !== null) {
+      let val = parseFloat(rm[1].replace(',', '.'));
+      if (!isNaN(val) && val <= 120) {
+        rateInput.value = val;
+        rateSet = true;
+        break;
+      }
     }
   }
 
@@ -260,14 +288,32 @@ function parseAndPrefill(text) {
     const datePatterns = [/\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4}/];
     const hoursPattern = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
     const ratePattern = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
-    for (const line of lines) {
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
       const lower = line.toLowerCase();
       const containsDate = datePatterns.some((p) => p.test(line));
       const containsHours = hoursPattern.test(line);
       const containsRate = ratePattern.test(line);
       if (!containsDate && !containsHours && !containsRate && lower.length > 2) {
-        facilityInput.value = line;
-        break;
+        // Überspringe Zeilen, die wie ein Personenname oder eine Adresse aussehen
+        const namePattern = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
+        const addrPattern = /(strasse|straße|weg|platz|allee|gasse|stadt|[0-9]{4,5})/i;
+        if ((namePattern.test(line) || addrPattern.test(lower)) && idx + 1 < lines.length) {
+          const nextLine = lines[idx + 1];
+          const nextLower = nextLine.toLowerCase();
+          const nextContainsDate = datePatterns.some((p) => p.test(nextLine));
+          const nextContainsHours = hoursPattern.test(nextLine);
+          const nextContainsRate = ratePattern.test(nextLine);
+          if (!nextContainsDate && !nextContainsHours && !nextContainsRate && nextLower.length > 2) {
+            facilityInput.value = nextLine;
+            facilityFound = true;
+            break;
+          }
+        } else {
+          facilityInput.value = line;
+          facilityFound = true;
+          break;
+        }
       }
     }
   }
