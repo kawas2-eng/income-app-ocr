@@ -195,6 +195,7 @@ async function handleFile(file) {
 // Versuche Datum, Stunden und Stundensatz aus Text zu extrahieren
 function parseAndPrefill(text) {
   const dateInput = document.getElementById('dateInput');
+  const facilityInput = document.getElementById('facilityInput');
   const hoursInput = document.getElementById('hoursInput');
   const rateInput = document.getElementById('rateInput');
   // Datum suchen (Formate: 01.02.2026 oder 1.2.26 etc.)
@@ -225,12 +226,50 @@ function parseAndPrefill(text) {
       hoursInput.value = hrs;
     }
   }
-  // Stundensatz suchen (z.B. 50,00 €, 50 €)
-  const rateRegex = /(?:€|eur)?\s*(\d+[\.,]\d{1,2})/i;
-  const rateMatch = text.match(rateRegex);
-  if (rateMatch) {
-    let rate = rateMatch[1].replace(',', '.');
+  // Stundensatz suchen
+  // 1. Explizite Angabe "Betrag: <Zahl>" oder "Stundensatz: <Zahl>"
+  const betragRegex = /(?:betrag|stundensatz)[:\s]*([\d\.,]+)/i;
+  const betragMatch = text.match(betragRegex);
+  if (betragMatch) {
+    let rate = betragMatch[1].replace(',', '.');
     rateInput.value = rate;
+  } else {
+    // 2. Fallback: erste gefundene Zahl mit Währung
+    const rateRegex = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
+    const rateMatch = text.match(rateRegex);
+    if (rateMatch) {
+      let rate = rateMatch[1].replace(',', '.');
+      rateInput.value = rate;
+    }
+  }
+
+  // Einrichtung aus dem OCR-Text extrahieren
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  let facilityFound = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/auftraggeber/i.test(lines[i])) {
+      if (i + 1 < lines.length) {
+        facilityInput.value = lines[i + 1];
+        facilityFound = true;
+      }
+      break;
+    }
+  }
+  if (!facilityFound) {
+    // Fallback: erste Zeile, die kein Datum, keine Stunden und keinen Betrag enthält
+    const datePatterns = [/\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4}/];
+    const hoursPattern = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
+    const ratePattern = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
+    for (const line of lines) {
+      const lower = line.toLowerCase();
+      const containsDate = datePatterns.some((p) => p.test(line));
+      const containsHours = hoursPattern.test(line);
+      const containsRate = ratePattern.test(line);
+      if (!containsDate && !containsHours && !containsRate && lower.length > 2) {
+        facilityInput.value = line;
+        break;
+      }
+    }
   }
 }
 
