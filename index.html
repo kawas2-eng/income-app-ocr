@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Einnahmen OCR App (PWA)</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./style.css" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Einnahmen OCR App" />
+  <!-- Tesseract.js über CDN für OCR -->
+  <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Einnahmen‑App mit OCR</h1>
+  </header>
+  <main>
+    <!-- Dokument scannen / hochladen -->
+    <section id="scanSection" class="card">
+      <h2>Dokument scannen</h2>
+      <input type="file" id="fileInput" accept="image/*,application/pdf" />
+      <p class="small">Wähle ein Bild oder PDF. Die Erkennung dauert einige Sekunden.</p>
+      <textarea id="ocrText" placeholder="Erkannter Text erscheint hier..." rows="6" readonly></textarea>
+    </section>
+    <!-- Formular zum Hinzufügen eines neuen Eintrags -->
+    <section id="addRecordSection" class="card">
+      <h2>Neuen Eintrag hinzufügen</h2>
+      <form id="recordForm">
+        <label>
+          Datum:<br />
+          <input type="date" id="dateInput" required />
+        </label><br />
+        <label>
+          Einrichtung:<br />
+          <input type="text" id="facilityInput" placeholder="Firma / Projekt" required />
+        </label><br />
+        <label>
+          Stunden:<br />
+          <input type="number" id="hoursInput" min="0" step="0.01" required />
+        </label><br />
+        <label>
+          Stundensatz (€):<br />
+          <input type="number" id="rateInput" min="0" step="0.01" required />
+        </label><br />
+        <button type="submit">Eintrag speichern</button>
+      </form>
+      <p class="small">Die Felder werden nach dem Scan soweit möglich vorausgefüllt. Bitte prüfe sie.</p>
+    </section>
+    <!-- Filterabschnitt -->
+    <section id="filterSection" class="card">
+      <h2>Filter</h2>
+      <label>
+        Monat:
+        <select id="monthFilter">
+          <option value="all">Alle</option>
+        </select>
+      </label>
+      <label>
+        Jahr:
+        <select id="yearFilter">
+          <option value="all">Alle</option>
+        </select>
+      </label>
+      <label>
+        Von:
+        <input type="date" id="fromDate" />
+      </label>
+      <label>
+        Bis:
+        <input type="date" id="toDate" />
+      </label>
+      <button id="applyFilter">Filter anwenden</button>
+    </section>
+    <!-- Tabelle der Einträge -->
+    <section id="tableSection" class="card">
+      <h2>Einträge</h2>
+      <table id="recordTable">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Einrichtung</th>
+            <th>Stunden</th>
+            <th>Stundensatz (€)</th>
+            <th>Einnahmen (€)</th>
+            <th>Aktion</th>
+          </tr>
+        </thead>
+        <tbody id="recordTableBody"></tbody>
+      </table>
+    </section>
+    <!-- Summenblock -->
+    <section id="summarySection" class="card">
+      <h2>Summen</h2>
+      <div id="summaryContent"></div>
+      <button id="exportCsv">CSV exportieren</button>
+    </section>
+    <!-- Einstellungen -->
+    <section id="settingsSection" class="card">
+      <h2>Einstellungen</h2>
+      <label>
+        Steuersatz (%):<br />
+        <input type="number" id="taxRateInput" min="0" max="100" step="0.1" />
+      </label><br />
+      <label>
+        Bereits abgeführte Steuern (€):<br />
+        <input type="number" id="taxPaidInput" min="0" step="0.01" />
+      </label><br />
+      <button id="saveSettings">Einstellungen speichern</button>
+    </section>
+  </main>
+  <footer>
+    <p class="small">Daten werden lokal (LocalStorage) gespeichert. Exportiere regelmäßig, um zu sichern.</p>
+  </footer>
+  <script src="./app.js"></script>
+  <script>
+    // Service Worker Registrierung
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./service-worker.js');
+      });
+    }
+  </script>
+</body>
+</html>
