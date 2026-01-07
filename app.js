@@ -198,11 +198,18 @@ function parseAndPrefill(text) {
   const facilityInput = document.getElementById('facilityInput');
   const hoursInput = document.getElementById('hoursInput');
   const rateInput = document.getElementById('rateInput');
-  // Datum suchen (Formate: 01.02.2026 oder 1.2.26 etc.)
-  const dateRegex = /(\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4})/;
-  const dateMatch = text.match(dateRegex);
+  // Datum suchen
+  // 1. Speziell: "Rechnungsdatum: <Datum>".
+  const recDateRegex = /Rechnungsdatum[:\s]*([0-9]{1,2}[\.\/-][0-9]{1,2}[\.\/-][0-9]{2,4})/i;
+  let dateMatch = text.match(recDateRegex);
+  if (!dateMatch) {
+    // 2. Allgemeines Datumsformat (01.02.2026 oder 1.2.26 etc.)
+    const genericDateRegex = /(\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4})/;
+    dateMatch = text.match(genericDateRegex);
+  }
   if (dateMatch) {
-    const parts = dateMatch[1].replace(/\//g,'.').replace(/-/g,'.').split('.');
+    const dateStr = dateMatch[1] || dateMatch[0];
+    const parts = dateStr.replace(/\//g,'.').replace(/-/g,'.').split('.');
     let d = parts[0].padStart(2,'0');
     let m = parts[1].padStart(2,'0');
     let y = parts[2];
@@ -212,8 +219,9 @@ function parseAndPrefill(text) {
     dateInput.value = `${y}-${m}-${d}`;
   }
 
-  // Spezielles Muster: "<stunden> Stunden ... <stundensatz> €"
-  const hrRatePattern = /(\d+[\.,]?\d*)\s*Stunden?[^\d]*(\d+[\.,]?\d*)\s*(?:€|eur|euro)/i;
+  // Spezielles Muster: "<stunden> Stunden ... <stundensatz>".
+  // Es wird kein Währungszeichen nach dem Stundensatz benötigt.
+  const hrRatePattern = /(\d+[\.,]?\d*)\s*Stunden?[^\d]*(\d+[\.,]?\d*)/i;
   const hrRateMatch = text.match(hrRatePattern);
   // Flag um zu verfolgen, ob der Stundensatz bereits gesetzt wurde
   let rateSet = false;
@@ -271,8 +279,46 @@ function parseAndPrefill(text) {
     }
   }
 
-  // Einrichtung aus dem OCR-Text extrahieren
+  // Neue Heuristik: Linien mit "Stunden" analysieren, um Stunden und Stundensatz zu finden.
+  // Wir extrahieren alle Zahlen in dieser Zeile und nehmen die erste als Stunden
+  // und die nächste Zahl <= 120 als Stundensatz.
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  for (const line of lines) {
+    if (/stunden/i.test(line)) {
+      const nums = line.match(/\d+[\.,]?\d*/g);
+      if (nums && nums.length >= 2) {
+        // in floats umwandeln
+        const parsedNums = nums
+          .map((n) => {
+            const v = n.replace(',', '.');
+            return parseFloat(v);
+          })
+          .filter((n) => !isNaN(n));
+        if (parsedNums.length >= 2) {
+          // Setze Stunden, falls noch nicht gesetzt
+          if (!hoursInput.value && parsedNums[0] !== undefined) {
+            hoursInput.value = parsedNums[0];
+          }
+          // Finde Stundensatz <= 120 (überspringe das erste Element)
+          if (!rateSet) {
+            for (let idx = 1; idx < parsedNums.length; idx++) {
+              const val = parsedNums[idx];
+              if (val > 0 && val <= 120) {
+                rateInput.value = val;
+                rateSet = true;
+                break;
+              }
+            }
+          }
+        }
+        if (hoursInput.value && rateSet) {
+          break;
+        }
+      }
+    }
+  }
+
+  // Einrichtung aus dem OCR-Text extrahieren
   let facilityFound = false;
   for (let i = 0; i < lines.length; i++) {
     if (/auftraggeber/i.test(lines[i])) {
@@ -284,38 +330,76 @@ function parseAndPrefill(text) {
     }
   }
   if (!facilityFound) {
-    // Fallback: erste Zeile, die kein Datum, keine Stunden und keinen Betrag enthält
-    const datePatterns = [/\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4}/];
-    const hoursPattern = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
-    const ratePattern = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
-    for (let idx = 0; idx < lines.length; idx++) {
-      const line = lines[idx];
-      const lower = line.toLowerCase();
-      const containsDate = datePatterns.some((p) => p.test(line));
-      const containsHours = hoursPattern.test(line);
-      const containsRate = ratePattern.test(line);
-      if (!containsDate && !containsHours && !containsRate && lower.length > 2) {
-        // Überspringe Zeilen, die wie ein Personenname oder eine Adresse aussehen
-        const namePattern = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
-        const addrPattern = /(strasse|straße|weg|platz|allee|gasse|stadt|[0-9]{4,5})/i;
-        if ((namePattern.test(line) || addrPattern.test(lower)) && idx + 1 < lines.length) {
-          const nextLine = lines[idx + 1];
-          const nextLower = nextLine.toLowerCase();
-          const nextContainsDate = datePatterns.some((p) => p.test(nextLine));
-          const nextContainsHours = hoursPattern.test(nextLine);
-          const nextContainsRate = ratePattern.test(nextLine);
-          if (!nextContainsDate && !nextContainsHours && !nextContainsRate && nextLower.length > 2) {
-            facilityInput.value = nextLine;
+    // 2. Falls es eine Überschrift "Abrechnung" gibt, nutze die Zeile davor als Einrichtung (falls sinnvoll)
+    for (let i = 0; i < lines.length; i++) {
+      if (/^abrechnung/i.test(lines[i])) {
+        // nach oben suchen, bis eine sinnvolle Zeile gefunden wird
+        for (let j = i - 1; j >= 0; j--) {
+          const cand = lines[j].trim();
+          const lowerCand = cand.toLowerCase();
+          // ignorieren, falls leere Zeile
+          if (cand.length === 0) continue;
+          // ignorieren, wenn es wie eine Adresse aussieht oder ein Name ist
+          const namePattern = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
+          const addrPattern = /(strasse|straße|weg|platz|allee|gasse|stadt|[0-9]{4,5})/i;
+          const datePatterns = [/\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}/];
+          const hoursPattern2 = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
+          const ratePattern2 = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
+          const containsDateCand = datePatterns.some((p) => p.test(cand));
+          const containsHoursCand = hoursPattern2.test(cand);
+          const containsRateCand = ratePattern2.test(cand);
+          const forbiddenKeywords = /(rechnungsnummer|rechnungsdatum|abrechnungszeitraum)/i;
+          if (
+            !namePattern.test(cand) &&
+            !addrPattern.test(lowerCand) &&
+            !containsDateCand &&
+            !containsHoursCand &&
+            !containsRateCand &&
+            lowerCand.length > 2 &&
+            !forbiddenKeywords.test(lowerCand)
+          ) {
+            facilityInput.value = cand;
             facilityFound = true;
             break;
           }
-        } else {
-          facilityInput.value = line;
-          facilityFound = true;
-          break;
         }
+        break;
       }
     }
+    // Fallback: erste Zeile, die kein Datum, keine Stunden und keinen Betrag enthält
+      const datePatterns = [/\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4}/];
+      const hoursPattern = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
+      const ratePattern = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
+      const forbiddenKeywords = /(rechnungsnummer|rechnungsdatum|abrechnungszeitraum)/i;
+      for (let idx = 0; idx < lines.length; idx++) {
+        const line = lines[idx];
+        const lower = line.toLowerCase();
+        const containsDate = datePatterns.some((p) => p.test(line));
+        const containsHours = hoursPattern.test(line);
+        const containsRate = ratePattern.test(line);
+        if (!containsDate && !containsHours && !containsRate && lower.length > 2 && !forbiddenKeywords.test(lower)) {
+          // Überspringe Zeilen, die wie ein Personenname oder eine Adresse aussehen
+          const namePattern = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
+          const addrPattern = /(strasse|straße|weg|platz|allee|gasse|stadt|[0-9]{4,5})/i;
+          if ((namePattern.test(line) || addrPattern.test(lower)) && idx + 1 < lines.length) {
+            const nextLine = lines[idx + 1];
+            const nextLower = nextLine.toLowerCase();
+            const nextContainsDate = datePatterns.some((p) => p.test(nextLine));
+            const nextContainsHours = hoursPattern.test(nextLine);
+            const nextContainsRate = ratePattern.test(nextLine);
+            const nextForbidden = forbiddenKeywords.test(nextLower);
+            if (!nextContainsDate && !nextContainsHours && !nextContainsRate && nextLower.length > 2 && !nextForbidden) {
+              facilityInput.value = nextLine;
+              facilityFound = true;
+              break;
+            }
+          } else {
+            facilityInput.value = line;
+            facilityFound = true;
+            break;
+          }
+        }
+      }
   }
 }
 
