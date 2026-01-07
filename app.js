@@ -210,12 +210,20 @@ function parseAndPrefill(text) {
     }
     dateInput.value = `${y}-${m}-${d}`;
   }
-  // Stunden suchen (z.B. 5 h, 7,5 Std)
-  const hoursRegex = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
-  const hoursMatch = text.match(hoursRegex);
-  if (hoursMatch) {
-    let hrs = hoursMatch[1].replace(',', '.');
+  // Stunden suchen. Zuerst nach "Anzahl: <Zahl>" (z.B. "Anzahl: 12,00")
+  const anzahlRegex = /Anzahl[:\s]*([\d\.,]+)/i;
+  const anzahlMatch = text.match(anzahlRegex);
+  if (anzahlMatch) {
+    let hrs = anzahlMatch[1].replace(',', '.');
     hoursInput.value = hrs;
+  } else {
+    // Fallback: Zahl gefolgt von Einheiten (z.B. 5 h, 7,5 Std)
+    const hoursRegex = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
+    const hoursMatch = text.match(hoursRegex);
+    if (hoursMatch) {
+      let hrs = hoursMatch[1].replace(',', '.');
+      hoursInput.value = hrs;
+    }
   }
   // Stundensatz suchen (z.B. 50,00 €, 50 €)
   const rateRegex = /(?:€|eur)?\s*(\d+[\.,]\d{1,2})/i;
