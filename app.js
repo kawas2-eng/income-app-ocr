@@ -234,6 +234,52 @@ function parseAndPrefill(text) {
   }
 }
 
+// PDF Verarbeitung: Konvertiere jede Seite des PDFs in ein Bild und führe OCR darauf aus
+async function processPdf(file) {
+  const ocrArea = document.getElementById('ocrText');
+  ocrArea.value = 'PDF wird verarbeitet...';
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        const typedarray = new Uint8Array(this.result);
+        // Setze Worker Pfad für pdf.js (notwendig in Browser ohne Bundler)
+        if (typeof pdfjsLib !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        }
+        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+        let fullText = '';
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          // Wähle einen Skalierungsfaktor für gute Lesbarkeit
+          const viewport = page.getViewport({ scale: 2 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          const dataUrl = canvas.toDataURL('image/png');
+          // OCR für die gerenderte Seite durchführen
+          const { data: { text } } = await Tesseract.recognize(dataUrl, 'deu+eng');
+          fullText += text + '\n';
+        }
+        ocrArea.value = fullText.trim();
+        parseAndPrefill(fullText);
+        resolve();
+      } catch (error) {
+        console.error(error);
+        ocrArea.value = 'OCR fehlgeschlagen: ' + error.message;
+        reject(error);
+      }
+    };
+    reader.onerror = function(e) {
+      ocrArea.value = 'Datei konnte nicht gelesen werden.';
+      reject(e);
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 // Initialisierung
 document.addEventListener('DOMContentLoaded', () => {
   loadData();
@@ -290,15 +336,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('fileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    // Wenn PDF, lese erste Seite als DatenURL
+    // PDF separat verarbeiten, ansonsten direkt OCR
     if (file.type === 'application/pdf') {
-      const reader = new FileReader();
-      reader.onload = async function() {
-        const pdfData = new Uint8Array(this.result);
-        // Verwende pdf.js aus tesseract.js (tesseract verarbeiten PDF intern), also direkt recognize
-        await handleFile(pdfData);
-      };
-      reader.readAsArrayBuffer(file);
+      processPdf(file).catch((err) => {
+        console.error(err);
+      });
     } else {
       handleFile(file);
     }
