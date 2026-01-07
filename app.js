@@ -334,14 +334,20 @@ function parseAndPrefill(text) {
     for (let i = 0; i < lines.length; i++) {
       if (/^abrechnung/i.test(lines[i])) {
         // nach oben suchen, bis eine sinnvolle Zeile gefunden wird
+        let candidates = [];
+        let foundCandidate = false;
         for (let j = i - 1; j >= 0; j--) {
           const cand = lines[j].trim();
           const lowerCand = cand.toLowerCase();
-          // ignorieren, falls leere Zeile
-          if (cand.length === 0) continue;
-          // ignorieren, wenn es wie eine Adresse aussieht oder ein Name ist
+          // wenn wir bereits Kandidaten gesammelt haben und auf eine leere Zeile stoßen, beende die Suche
+          if (cand.length === 0) {
+            if (candidates.length > 0) {
+              break;
+            } else {
+              continue;
+            }
+          }
           const namePattern = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
-          const addrPattern = /(strasse|straße|weg|platz|allee|gasse|stadt|[0-9]{4,5})/i;
           const datePatterns = [/\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}/];
           const hoursPattern2 = /(\d+[\.,]?\d*)\s*(?:h|std|stunden)/i;
           const ratePattern2 = /(\d+[\.,]\d{1,2})\s*(?:€|eur|euro)/i;
@@ -351,17 +357,26 @@ function parseAndPrefill(text) {
           const forbiddenKeywords = /(rechnungsnummer|rechnungsdatum|abrechnungszeitraum)/i;
           if (
             !namePattern.test(cand) &&
-            !addrPattern.test(lowerCand) &&
             !containsDateCand &&
             !containsHoursCand &&
             !containsRateCand &&
             lowerCand.length > 2 &&
             !forbiddenKeywords.test(lowerCand)
           ) {
-            facilityInput.value = cand;
-            facilityFound = true;
-            break;
+            candidates.push(cand);
+          } else {
+            // wenn wir bereits Kandidaten gesammelt haben und auf eine unerwünschte Zeile stoßen, beende die Suche
+            if (candidates.length > 0) {
+              break;
+            }
           }
+        }
+        if (candidates.length > 0) {
+          // Wähle den ersten gesammelten Kandidaten (der dem Abschnitt "Abrechnung" am nächsten liegt).
+          // Da die Suche von unten nach oben verläuft und wir Candidate‑Zeilen pushen, enthält candidates[0]
+          // die Zeile direkt oberhalb der leeren Zeile, also typischerweise den Auftraggeber bzw. die Einrichtung.
+          facilityInput.value = candidates[0];
+          facilityFound = true;
         }
         break;
       }
@@ -380,8 +395,7 @@ function parseAndPrefill(text) {
         if (!containsDate && !containsHours && !containsRate && lower.length > 2 && !forbiddenKeywords.test(lower)) {
           // Überspringe Zeilen, die wie ein Personenname oder eine Adresse aussehen
           const namePattern = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
-          const addrPattern = /(strasse|straße|weg|platz|allee|gasse|stadt|[0-9]{4,5})/i;
-          if ((namePattern.test(line) || addrPattern.test(lower)) && idx + 1 < lines.length) {
+          if (namePattern.test(line) && idx + 1 < lines.length) {
             const nextLine = lines[idx + 1];
             const nextLower = nextLine.toLowerCase();
             const nextContainsDate = datePatterns.some((p) => p.test(nextLine));
