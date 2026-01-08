@@ -414,6 +414,36 @@ function parseAndPrefill(text) {
           }
         }
       }
+
+    // Letzte Fallback-Heuristik: Wenn bis hierher keine Einrichtung gefunden wurde,
+    // wähle die erste nicht-leere Zeile nach der ersten Leerzeile oberhalb der Überschrift "Abrechnung".
+    if (!facilityFound) {
+      let sawFirstBlank = false;
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i].trim();
+        if (l.length === 0) {
+          // markiere, dass wir einen leeren Abschnitt gesehen haben (Trennung zwischen Adressblöcken)
+          sawFirstBlank = true;
+          continue;
+        }
+        if (sawFirstBlank) {
+          // Kandidat für Einrichtung
+          const lowerL = l.toLowerCase();
+          // Muster für Namen (zwei Wörter mit Großbuchstaben), um Personen zu überspringen
+          const namePattern2 = /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+$/;
+          // Datum/Stunden/Betrag-Muster wie oben definiert
+          const containsDate2 = datePatterns.some((p) => p.test(l));
+          const containsHours2 = hoursPattern.test(l);
+          const containsRate2 = ratePattern.test(l);
+          const isForbidden2 = forbiddenKeywords.test(lowerL);
+          if (!namePattern2.test(l) && !containsDate2 && !containsHours2 && !containsRate2 && !isForbidden2) {
+            facilityInput.value = l;
+            facilityFound = true;
+            break;
+          }
+        }
+      }
+    }
   }
 }
 
